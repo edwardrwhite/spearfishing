@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0A1D20">
+<title>SD Dive Conditions</title>
+<style>
+  :root{
+    --abyss:#0A1D20; --panel:#102B2C; --edge:#1C4140; --seaglass:#6FD3BC;
+    --bone:#E9E4D6; --slate:#7FA09B; --amber:#E2A75B; --red:#D97362;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,monospace;
+    --sans:-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;background:var(--abyss);}
+  body{font-family:var(--sans);color:var(--bone);
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) calc(env(safe-area-inset-bottom) + 24px) env(safe-area-inset-left);}
+  .wrap{max-width:680px;margin:0 auto;padding:22px 16px 0;}
+  .eyebrow{font-family:var(--mono);color:var(--slate);font-size:10px;letter-spacing:.18em;text-transform:uppercase;}
+  .card{background:var(--panel);border:1px solid var(--edge);border-radius:12px;padding:16px;margin-top:16px;}
+  h1{font-family:var(--mono);font-size:22px;font-weight:700;letter-spacing:-.01em;margin:4px 0 0;}
+  .btn{background:var(--panel);border:1px solid var(--edge);color:var(--slate);font-family:var(--mono);
+    font-size:11px;letter-spacing:.1em;padding:7px 11px;border-radius:6px;cursor:pointer;}
+  .row{display:flex;align-items:flex-end;justify-content:space-between;}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:16px;}
+  @media(min-width:520px){.grid{grid-template-columns:repeat(3,1fr);}}
+  .tile{background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:12px;}
+  .tile .v{font-family:var(--mono);font-size:26px;color:var(--bone);font-weight:600;}
+  .tile .u{font-family:var(--mono);font-size:12px;color:var(--slate);margin-left:4px;}
+  .tile .s{font-size:12px;color:var(--slate);margin-top:2px;}
+  .pulse{animation:p 1.4s ease-in-out infinite;} @keyframes p{0%,100%{opacity:1}50%{opacity:.4}}
+  .spot{background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:12px;margin-top:12px;}
+  .spot .h{font-family:var(--mono);font-size:14px;font-weight:700;}
+  .spot .d{font-family:var(--mono);font-size:11px;color:var(--slate);}
+  .spot .n{font-size:13px;color:var(--slate);line-height:1.5;margin-top:4px;}
+  .legend{display:flex;flex-wrap:wrap;gap:4px 16px;justify-content:center;margin-top:12px;}
+  .legend span{font-family:var(--mono);font-size:10px;}
+  .disc{font-size:11px;color:var(--slate);line-height:1.45;text-align:center;margin-top:8px;}
+  #map{position:relative;overflow:hidden;border-radius:8px;height:460px;margin-top:12px;
+    touch-action:none;cursor:grab;background:#0C2225;user-select:none;}
+  #map img{position:absolute;width:256px;height:256px;user-select:none;-webkit-user-drag:none;}
+  #ovl{position:absolute;left:0;top:0;pointer-events:none;}
+  .mctl{position:absolute;right:8px;top:8px;display:flex;flex-direction:column;gap:6px;}
+  .mctl button{width:34px;height:34px;background:rgba(10,29,32,.82);border:1px solid var(--edge);
+    color:var(--bone);font-family:var(--mono);font-size:17px;border-radius:6px;cursor:pointer;}
+  #lbl{position:absolute;left:8px;top:8px;height:30px;padding:0 10px;background:rgba(10,29,32,.82);
+    border:1px solid var(--edge);font-family:var(--mono);font-size:10px;letter-spacing:.08em;border-radius:6px;cursor:pointer;color:var(--seaglass);}
+  #badge{position:absolute;left:8px;bottom:8px;background:rgba(10,29,32,.85);border:1px solid var(--edge);
+    color:var(--amber);font-family:var(--mono);font-size:10px;padding:5px 8px;border-radius:6px;display:none;}
+  .foot{font-family:var(--mono);font-size:10px;color:var(--slate);letter-spacing:.1em;line-height:1.8;text-align:center;margin-top:24px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row">
+    <div>
+      <div class="eyebrow" style="color:var(--seaglass)">San Diego · La Jolla &rarr; Pt Loma</div>
+      <h1>Dive Conditions</h1>
+    </div>
+    <button class="btn" id="refresh">&#8635; REFRESH</button>
+  </div>
+  <div id="verdict"></div>
+  <div id="content"></div>
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+"use strict";
+var C={abyss:"#0A1D20",panel:"#102B2C",edge:"#1C4140",seaglass:"#6FD3BC",bone:"#E9E4D6",slate:"#7FA09B",amber:"#E2A75B",red:"#D97362"};
+var MONO='ui-monospace,"SF Mono","Cascadia Mono",Menlo,monospace';
+var LAT=32.867, LON=-117.257;
+
+/* ===== embedded NOAA-derived tide predictions (La Jolla / Scripps) ===== */
+var TIDES_YEAR=2026;
+var TIDES=[[6,8,23,16,1.96,0],[6,9,4,30,3.26,1],[6,9,10,34,1.12,0],[6,9,17,29,4.84,1],[6,10,0,20,1.17,0],[6,10,6,1,3.17,1],[6,10,11,20,1.39,0],[6,10,18,5,5.41,1],[6,11,1,14,0.32,0],[6,11,7,17,3.23,1],[6,11,12,7,1.63,0],[6,11,18,44,5.97,1],[6,12,2,2,-0.49,0],[6,12,8,22,3.37,1],[6,12,12,55,1.82,0],[6,12,19,26,6.48,1],[6,13,2,49,-1.16,0],[6,13,9,19,3.52,1],[6,13,13,43,1.95,0],[6,13,20,10,6.85,1],[6,14,3,37,-1.62,0],[6,14,10,12,3.64,1],[6,14,14,33,2.02,0],[6,14,20,57,7.05,1],[6,15,4,24,-1.83,0],[6,15,11,2,3.73,1],[6,15,15,24,2.07,0],[6,15,21,45,7.02,1],[6,16,5,12,-1.8,0],[6,16,11,53,3.8,1],[6,16,16,17,2.13,0],[6,16,22,35,6.75,1],[6,17,6,0,-1.55,0],[6,17,12,44,3.89,1],[6,17,17,16,2.21,0],[6,17,23,27,6.26,1],[6,18,6,49,-1.12,0],[6,18,13,37,4.01,1],[6,18,18,22,2.29,0],[6,19,0,21,5.58,1],[6,19,7,37,-0.58,0],[6,19,14,31,4.19,1],[6,19,19,39,2.33,0],[6,20,1,22,4.79,1],[6,20,8,26,0.02,0],[6,20,15,26,4.41,1],[6,20,21,9,2.2,0],[6,21,2,33,4.01,1],[6,21,9,14,0.63,0],[6,21,16,17,4.66,1],[6,21,22,43,1.84,0],[6,22,4,2,3.39,1],[6,22,10,3,1.21,0],[6,22,17,5,4.91,1],[6,23,0,3,1.31,0],[6,23,5,41,3.06,1],[6,23,10,52,1.71,0],[6,23,17,47,5.13,1],[6,24,1,5,0.76,0],[6,24,7,11,3.03,1],[6,24,11,39,2.11,0],[6,24,18,25,5.32,1],[6,25,1,52,0.29,0],[6,25,8,21,3.14,1],[6,25,12,24,2.4,0],[6,25,19,0,5.49,1],[6,26,2,32,-0.08,0],[6,26,9,12,3.26,1],[6,26,13,5,2.56,0],[6,26,19,34,5.64,1],[6,27,3,6,-0.35,0],[6,27,9,50,3.37,1],[6,27,13,43,2.61,0],[6,27,20,7,5.78,1],[6,28,3,39,-0.52,0],[6,28,10,22,3.44,1],[6,28,14,19,2.59,0],[6,28,20,40,5.88,1],[6,29,4,11,-0.6,0],[6,29,10,51,3.49,1],[6,29,14,54,2.54,0],[6,29,21,14,5.94,1],[6,30,4,42,-0.61,0],[6,30,11,21,3.53,1],[6,30,15,29,2.49,0],[6,30,21,48,5.92,1],[7,1,5,14,-0.55,0],[7,1,11,52,3.58,1],[7,1,16,5,2.47,0],[7,1,22,22,5.79,1],[7,2,5,46,-0.41,0],[7,2,12,24,3.65,1],[7,2,16,45,2.48,0],[7,2,22,56,5.55,1],[7,3,6,17,-0.2,0],[7,3,12,58,3.75,1],[7,3,17,31,2.52,0],[7,3,23,32,5.17,1],[7,4,6,49,0.08,0],[7,4,13,34,3.91,1],[7,4,18,26,2.55,0],[7,5,0,12,4.67,1],[7,5,7,20,0.44,0],[7,5,14,12,4.14,1],[7,5,19,37,2.49,0],[7,6,1,3,4.06,1],[7,6,7,54,0.87,0],[7,6,14,54,4.44,1],[7,6,21,7,2.25,0],[7,7,2,16,3.4,1],[7,7,8,31,1.32,0],[7,7,15,40,4.81,1],[7,7,22,45,1.72,0],[7,8,4,6,2.91,1],[7,8,9,17,1.77,0],[7,8,16,30,5.25,1],[7,9,0,5,0.96,0],[7,9,6,9,2.83,1],[7,9,10,17,2.15,0],[7,9,17,23,5.73,1],[7,10,1,6,0.14,0],[7,10,7,38,3.05,1],[7,10,11,26,2.39,0],[7,10,18,16,6.22,1],[7,11,1,58,-0.59,0],[7,11,8,38,3.36,1],[7,11,12,33,2.44,0],[7,11,19,9,6.67,1],[7,12,2,45,-1.17,0],[7,12,9,24,3.65,1],[7,12,13,34,2.34,0],[7,12,20,1,7.01,1],[7,13,3,29,-1.52,0],[7,13,10,5,3.9,1],[7,13,14,30,2.16,0],[7,13,20,51,7.18,1],[7,14,4,12,-1.64,0],[7,14,10,45,4.12,1],[7,14,15,23,1.98,0],[7,14,21,39,7.11,1],[7,15,4,53,-1.51,0],[7,15,11,24,4.31,1],[7,15,16,16,1.85,0],[7,15,22,27,6.78,1],[7,16,5,34,-1.18,0],[7,16,12,4,4.48,1],[7,16,17,10,1.8,0],[7,16,23,14,6.21,1],[7,17,6,13,-0.67,0],[7,17,12,46,4.62,1],[7,17,18,8,1.84,0],[7,18,0,2,5.45,1],[7,18,6,50,-0.04,0],[7,18,13,29,4.72,1],[7,18,19,12,1.9,0],[7,19,0,55,4.59,1],[7,19,7,27,0.65,0],[7,19,14,15,4.8,1],[7,19,20,29,1.91,0],[7,20,1,58,3.74,1],[7,20,8,4,1.34,0],[7,20,15,4,4.85,1],[7,20,22,3,1.75,0],[7,21,3,30,3.07,1],[7,21,8,42,1.98,0],[7,21,15,57,4.91,1],[7,21,23,37,1.37,0],[7,22,5,50,2.83,1],[7,22,9,31,2.51,0],[7,22,16,53,4.99,1],[7,23,0,49,0.89,0],[7,23,7,50,3.04,1],[7,23,10,44,2.86,0],[7,23,17,47,5.14,1],[7,24,1,39,0.45,0],[7,24,8,45,3.31,1],[7,24,12,0,3,0],[7,24,18,35,5.34,1],[7,25,2,18,0.11,0],[7,25,9,16,3.5,1],[7,25,12,57,2.95,0],[7,25,19,17,5.57,1],[7,26,2,51,-0.15,0],[7,26,9,38,3.63,1],[7,26,13,39,2.79,0],[7,26,19,56,5.8,1],[7,27,3,21,-0.33,0],[7,27,9,59,3.74,1],[7,27,14,16,2.59,0],[7,27,20,31,6,1],[7,28,3,49,-0.43,0],[7,28,10,20,3.85,1],[7,28,14,50,2.38,0],[7,28,21,4,6.11,1],[7,29,4,17,-0.46,0],[7,29,10,42,3.98,1],[7,29,15,25,2.2,0],[7,29,21,37,6.1,1],[7,30,4,43,-0.4,0],[7,30,11,6,4.12,1],[7,30,16,1,2.08,0],[7,30,22,9,5.95,1],[7,31,5,9,-0.24,0],[7,31,11,32,4.28,1],[7,31,16,39,1.99,0],[7,31,22,42,5.63,1],[8,1,5,35,0.03,0],[8,1,12,0,4.46,1],[8,1,17,22,1.94,0],[8,1,23,18,5.16,1],[8,2,6,1,0.41,0],[8,2,12,30,4.64,1],[8,2,18,13,1.91,0],[8,2,23,59,4.54,1],[8,3,6,26,0.87,0],[8,3,13,3,4.83,1],[8,3,19,16,1.87,0],[8,4,0,50,3.83,1],[8,4,6,53,1.39,0],[8,4,13,44,5.02,1],[8,4,20,40,1.72,0],[8,5,2,8,3.11,1],[8,5,7,22,1.92,0],[8,5,14,37,5.21,1],[8,5,22,25,1.33,0],[8,6,4,35,2.7,1],[8,6,8,3,2.43,0],[8,6,15,43,5.44,1],[8,6,23,56,0.68,0],[8,7,7,6,2.94,1],[8,7,9,33,2.82,0],[8,7,16,57,5.76,1],[8,8,1,0,-0.01,0],[8,8,8,2,3.34,1],[8,8,11,23,2.9,0],[8,8,18,5,6.17,1],[8,9,1,50,-0.59,0],[8,9,8,37,3.7,1],[8,9,12,42,2.66,0],[8,9,19,4,6.58,1],[8,10,2,33,-1,0],[8,10,9,9,4.04,1],[8,10,13,41,2.27,0],[8,10,19,57,6.87,1],[8,11,3,12,-1.19,0],[8,11,9,40,4.36,1],[8,11,14,33,1.86,0],[8,11,20,46,6.96,1],[8,12,3,49,-1.15,0],[8,12,10,12,4.65,1],[8,12,15,22,1.52,0],[8,12,21,31,6.8,1],[8,13,4,24,-0.91,0],[8,13,10,44,4.9,1],[8,13,16,9,1.29,0],[8,13,22,15,6.4,1],[8,14,4,57,-0.5,0],[8,14,11,17,5.08,1],[8,14,16,57,1.21,0],[8,14,22,58,5.78,1],[8,15,5,28,0.06,0],[8,15,11,50,5.17,1],[8,15,17,46,1.24,0],[8,15,23,42,5.03,1],[8,16,5,58,0.7,0],[8,16,12,24,5.17,1],[8,16,18,41,1.36,0],[8,17,0,30,4.22,1],[8,17,6,24,1.36,0],[8,17,13,0,5.08,1],[8,17,19,45,1.51,0],[8,18,1,29,3.46,1],[8,18,6,47,2.01,0],[8,18,13,41,4.93,1],[8,18,21,12,1.57,0],[8,19,3,15,2.89,1],[8,19,7,1,2.57,0],[8,19,14,34,4.76,1],[8,19,22,59,1.39,0],[8,20,15,50,4.69,1],[8,21,0,22,1.01,0],[8,21,8,45,3.37,1],[8,21,10,10,3.36,0],[8,21,17,11,4.8,1],[8,22,1,14,0.63,0],[8,22,8,37,3.6,1],[8,22,12,5,3.25,0],[8,22,18,14,5.06,1],[8,23,1,52,0.31,0],[8,23,8,48,3.76,1],[8,23,12,57,2.96,0],[8,23,19,2,5.38,1],[8,24,2,22,0.07,0],[8,24,9,1,3.92,1],[8,24,13,35,2.62,0],[8,24,19,40,5.68,1],[8,25,2,49,-0.1,0],[8,25,9,16,4.09,1],[8,25,14,8,2.27,0],[8,25,20,15,5.9,1],[8,26,3,14,-0.18,0],[8,26,9,34,4.3,1],[8,26,14,40,1.93,0],[8,26,20,48,6,1],[8,27,3,38,-0.18,0],[8,27,9,54,4.53,1],[8,27,15,14,1.63,0],[8,27,21,20,5.95,1],[8,28,4,2,-0.07,0],[8,28,10,16,4.78,1],[8,28,15,49,1.38,0],[8,28,21,54,5.73,1],[8,29,4,26,0.16,0],[8,29,10,39,5.03,1],[8,29,16,28,1.19,0],[8,29,22,30,5.34,1],[8,30,4,49,0.51,0],[8,30,11,6,5.24,1],[8,30,17,11,1.08,0],[8,30,23,9,4.8,1],[8,31,5,13,0.96,0],[8,31,11,35,5.4,1],[8,31,18,1,1.04,0],[8,31,23,56,4.14,1],[9,1,5,37,1.47,0],[9,1,12,9,5.48,1],[9,1,19,3,1.06,0],[9,2,0,58,3.43,1],[9,2,6,1,2,0],[9,2,12,51,5.48,1],[9,2,20,26,1.05,0],[9,3,2,47,2.87,1],[9,3,6,22,2.52,0],[9,3,13,50,5.41,1],[9,3,22,13,0.83,0],[9,4,15,14,5.38,1],[9,4,23,43,0.36,0],[9,5,7,26,3.41,1],[9,5,10,3,3.25,0],[9,5,16,47,5.55,1],[9,6,0,44,-0.12,0],[9,6,7,47,3.8,1],[9,6,11,52,2.94,0],[9,6,18,2,5.88,1],[9,7,1,31,-0.48,0],[9,7,8,12,4.18,1],[9,7,12,57,2.39,0],[9,7,19,2,6.19,1],[9,8,2,10,-0.65,0],[9,8,8,38,4.55,1],[9,8,13,48,1.81,0],[9,8,19,53,6.35,1],[9,9,2,45,-0.64,0],[9,9,9,5,4.91,1],[9,9,14,33,1.29,0],[9,9,20,38,6.31,1],[9,10,3,17,-0.45,0],[9,10,9,33,5.23,1],[9,10,15,16,0.88,0],[9,10,21,21,6.05,1],[9,11,3,46,-0.11,0],[9,11,10,0,5.47,1],[9,11,15,59,0.63,0],[9,11,22,2,5.62,1],[9,12,4,14,0.35,0],[9,12,10,28,5.61,1],[9,12,16,41,0.54,0],[9,12,22,43,5.05,1],[9,13,4,39,0.88,0],[9,13,10,55,5.62,1],[9,13,17,24,0.59,0],[9,13,23,25,4.42,1],[9,14,5,2,1.45,0],[9,14,11,23,5.51,1],[9,14,18,10,0.76,0],[9,15,0,13,3.79,1],[9,15,5,22,2,0],[9,15,11,51,5.29,1],[9,15,19,5,1,0],[9,16,1,17,3.22,1],[9,16,5,34,2.5,0],[9,16,12,23,5.01,1],[9,16,20,19,1.22,0],[9,17,3,47,2.88,1],[9,17,4,55,2.88,0],[9,17,13,6,4.69,1],[9,17,22,3,1.26,0],[9,18,14,29,4.42,1],[9,18,23,35,1.05,0],[9,19,8,22,3.6,1],[9,19,10,21,3.57,0],[9,19,16,27,4.43,1],[9,20,0,31,0.76,0],[9,20,7,56,3.77,1],[9,20,12,2,3.23,0],[9,20,17,44,4.69,1],[9,21,1,9,0.5,0],[9,21,8,1,3.96,1],[9,21,12,45,2.78,0],[9,21,18,35,5,1],[9,22,1,39,0.32,0],[9,22,8,12,4.19,1],[9,22,13,19,2.31,0],[9,22,19,15,5.27,1],[9,23,2,5,0.2,0],[9,23,8,26,4.47,1],[9,23,13,52,1.82,0],[9,23,19,52,5.45,1],[9,24,2,28,0.18,0],[9,24,8,44,4.8,1],[9,24,14,25,1.34,0],[9,24,20,27,5.49,1],[9,25,2,52,0.25,0],[9,25,9,4,5.16,1],[9,25,15,0,0.89,0],[9,25,21,3,5.4,1],[9,26,3,16,0.42,0],[9,26,9,26,5.5,1],[9,26,15,37,0.51,0],[9,26,21,42,5.15,1],[9,27,3,40,0.71,0],[9,27,9,52,5.8,1],[9,27,16,17,0.23,0],[9,27,22,24,4.75,1],[9,28,4,5,1.1,0],[9,28,10,20,6,1],[9,28,17,2,0.08,0],[9,28,23,11,4.24,1],[9,29,4,31,1.56,0],[9,29,10,53,6.07,1],[9,29,17,54,0.09,0],[9,30,0,9,3.67,1],[9,30,4,58,2.04,0],[9,30,11,30,5.99,1],[9,30,18,58,0.21,0],[10,1,1,30,3.17,1],[10,1,5,24,2.52,0],[10,1,12,18,5.75,1],[10,1,20,19,0.33,0],[10,2,4,0,3.03,1],[10,2,5,53,2.98,0],[10,2,13,25,5.43,1],[10,2,21,55,0.29,0],[10,3,6,14,3.41,1],[10,3,8,9,3.36,0],[10,3,15,2,5.18,1],[10,3,23,16,0.09,0],[10,4,6,43,3.83,1],[10,4,10,46,3.15,0],[10,4,16,40,5.19,1],[10,5,0,14,-0.11,0],[10,5,7,9,4.25,1],[10,5,12,7,2.54,0],[10,5,17,56,5.35,1],[10,6,0,59,-0.18,0],[10,6,7,36,4.67,1],[10,6,13,2,1.85,0],[10,6,18,56,5.47,1],[10,7,1,36,-0.12,0],[10,7,8,2,5.07,1],[10,7,13,49,1.2,0],[10,7,19,46,5.46,1],[10,8,2,9,0.09,0],[10,8,8,27,5.43,1],[10,8,14,31,0.66,0],[10,8,20,31,5.3,1],[10,9,2,38,0.39,0],[10,9,8,53,5.72,1],[10,9,15,10,0.26,0],[10,9,21,13,5.02,1],[10,10,3,4,0.77,0],[10,10,9,18,5.9,1],[10,10,15,48,0.03,0],[10,10,21,54,4.66,1],[10,11,3,28,1.19,0],[10,11,9,42,5.96,1],[10,11,16,26,-0.05,0],[10,11,22,36,4.26,1],[10,12,3,51,1.63,0],[10,12,10,7,5.89,1],[10,12,17,5,0.01,0],[10,12,23,19,3.84,1],[10,13,4,12,2.05,0],[10,13,10,32,5.72,1],[10,13,17,47,0.2,0],[10,14,0,10,3.44,1],[10,14,4,29,2.44,0],[10,14,10,59,5.45,1],[10,14,18,35,0.48,0],[10,15,1,20,3.1,1],[10,15,4,39,2.77,0],[10,15,11,29,5.12,1],[10,15,19,37,0.77,0],[10,16,12,8,4.74,1]];
+
+/* ===== data + geometry (ported verbatim from the app) ===== */
+const SPOTS = [
+  {
+    name: "Windansea corridor",
+    depth: "8–25 ft",
+    lat: 32.836, lon: -117.287,
+    note: "The legal gap between Matlahuayl SMR and South La Jolla SMR — Marine St down to Palomar Ave. Boilers and ledges hold calicos and sheephead. Tight surge zone; pick small days and a high slack.",
+  },
+  {
+    name: "Black's / Torrey Pines",
+    depth: "15–45 ft",
+    lat: 32.889, lon: -117.259,
+    note: "Open water starts north of the Scripps SMCA line. Sand flats and patch reef — halibut on the edges, white seabass ghosting the canyon rim in spring. Long walk in, or a boat drop.",
+  },
+  {
+    name: "Point Loma kelp",
+    depth: "20–60 ft",
+    lat: 32.705, lon: -117.266,
+    note: "Thick canopy handles swell better than the inshore spots. White seabass in the stringers this time of year; yellowtail if the water pushes past 66°F. Stay north of the Cabrillo SMR line at the tip.",
+  },
+];
+
+const OCEAN_COAST = [
+  [32.915, -117.2510], [32.898, -117.2520], [32.889, -117.2525], [32.880, -117.2535],
+  [32.873, -117.2550], [32.867, -117.2571], [32.860, -117.2563], [32.855, -117.2570],
+  [32.852, -117.2600], [32.8515, -117.2680], [32.8510, -117.2730], [32.8480, -117.2782],
+  [32.8430, -117.2810], [32.8340, -117.2825], [32.8262, -117.2797], [32.8190, -117.2760],
+  [32.8140, -117.2745], [32.8085, -117.2680], [32.8050, -117.2635], [32.7991, -117.2565],
+  [32.7900, -117.2545], [32.7750, -117.2528], [32.7570, -117.2545], [32.7450, -117.2535],
+  [32.7250, -117.2575], [32.7000, -117.2585], [32.6850, -117.2540], [32.6767, -117.2470],
+  [32.6680, -117.2445], [32.6650, -117.2430],
+];
+
+const BAY_COAST = [
+  [32.6667, -117.2383], [32.6900, -117.2310], [32.7200, -117.2270], [32.7400, -117.2250],
+];
+
+const coastSeg = (latS, latN) => OCEAN_COAST.filter(p => p[0] >= latS && p[0] <= latN);
+
+const MPAS = [
+  {
+    name: "San Diego–Scripps", sub: "SMCA", kind: "smca", labelAt: [32.876, -117.268],
+    pts: [[32.8833, -117.2528], [32.8833, -117.2733], [32.8661, -117.2733], [32.8661, -117.2539],
+      ...coastSeg(32.8661, 32.8833).reverse()],
+  },
+  {
+    name: "Matlahuayl", sub: "SMR", kind: "smr", labelAt: [32.859, -117.2700],
+    pts: [[32.8661, -117.2539], [32.8661, -117.2733], [32.8511, -117.2733], [32.8511, -117.2728],
+      ...coastSeg(32.8511, 32.8661).reverse()],
+  },
+  {
+    name: "South La Jolla", sub: "SMR", kind: "smr", labelAt: [32.8135, -117.298],
+    pts: [[32.8262, -117.2797], [32.8262, -117.3167], [32.7991, -117.3167], [32.7991, -117.2565],
+      ...coastSeg(32.7991, 32.8262).reverse()],
+  },
+  {
+    name: "South La Jolla", sub: "SMCA", kind: "smca", labelAt: [32.8135, -117.332],
+    pts: [[32.8262, -117.3167], [32.8262, -117.3421], [32.7991, -117.3345], [32.7991, -117.3167]],
+  },
+  {
+    name: "Cabrillo", sub: "SMR", kind: "smr", labelAt: [32.6695, -117.258],
+    pts: [[32.6767, -117.2470], [32.6767, -117.2500], [32.6617, -117.2500], [32.6617, -117.2383],
+      [32.6667, -117.2383], [32.6650, -117.2430], [32.6680, -117.2445]],
+  },
+];
+
+const ACCESS = [
+  { name: "Windansea (Neptune Pl)", lat: 32.8330, lon: -117.2787, note: "Stairs into the corridor" },
+  { name: "Black's via Gliderport", lat: 32.8900, lon: -117.2512, note: "Steep cliff trail down" },
+  { name: "Sunset Cliffs (Ladera St)", lat: 32.7270, lon: -117.2553, note: "Stairs; long swim — boat better" },
+];
+
+function computeSunTimes(date, lat, lon) {
+  const rad = Math.PI / 180;
+  const start = new Date(date.getFullYear(), 0, 0);
+  const doy = Math.floor((date - start) / 86400000);
+  const lngHour = lon / 15;
+  const calc = (rising) => {
+    const t = doy + ((rising ? 6 : 18) - lngHour) / 24;
+    const M = 0.9856 * t - 3.289;
+    let L = M + 1.916 * Math.sin(M * rad) + 0.020 * Math.sin(2 * M * rad) + 282.634;
+    L = ((L % 360) + 360) % 360;
+    let RA = Math.atan(0.91764 * Math.tan(L * rad)) / rad;
+    RA = ((RA % 360) + 360) % 360;
+    RA += Math.floor(L / 90) * 90 - Math.floor(RA / 90) * 90;
+    RA /= 15;
+    const sinDec = 0.39782 * Math.sin(L * rad);
+    const cosDec = Math.cos(Math.asin(sinDec));
+    const cosH = (Math.cos(90.833 * rad) - sinDec * Math.sin(lat * rad)) / (cosDec * Math.cos(lat * rad));
+    if (cosH > 1 || cosH < -1) return null;
+    const H = (rising ? 360 - Math.acos(cosH) / rad : Math.acos(cosH) / rad) / 15;
+    const T = H + RA - 0.06571 * t - 6.622;
+    const UT = ((T - lngHour) % 24 + 24) % 24;
+    const evt = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) + UT * 3600000);
+    return evt.getHours() * 60 + evt.getMinutes();
+  };
+  const toHHMM = (m) => (m == null ? null : `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
+  return { sunrise: toHHMM(calc(true)), sunset: toHHMM(calc(false)) };
+}
+
+/* ===== time helpers ===== */
+function dayStart(){var d=new Date();d.setHours(0,0,0,0);return d;}
+function minsSinceMidnight(d){return (d.getTime()-dayStart().getTime())/60000;}
+function fmtMins(m){var mm=((m%1440)+1440)%1440,h=Math.floor(mm/60),mi=Math.round(mm%60),ap=h>=12?"p":"a";h=h%12||12;return h+":"+String(mi).padStart(2,"0")+ap;}
+function parseHHMM(s){if(!s)return null;var m=String(s).match(/(\d{1,2}):(\d{2})/);return m?(+m[1])*60+(+m[2]):null;}
+function tideCoverageEnd(){if(!TIDES.length)return null;var l=TIDES[TIDES.length-1];return new Date(TIDES_YEAR,l[0]-1,l[1]);}
+function getTideExtremes(){var p=pacNow(),today=dayNum(p.y,p.mo,p.d),out=[];for(var i=0;i<TIDES.length;i++){var e=TIDES[i];var diff=dayNum(TIDES_YEAR,e[0],e[1])-today;if(Math.abs(diff)>2)continue;out.push({m:diff*1440+e[2]*60+e[3],h:e[4],type:e[5]?"H":"L"});}return out.sort(function(a,b){return a.m-b.m;});}
+function tideHeightAt(mins,ext){if(!ext||ext.length<2)return null;if(mins<=ext[0].m)return ext[0].h;if(mins>=ext[ext.length-1].m)return ext[ext.length-1].h;for(var i=0;i<ext.length-1;i++){var a=ext[i],b=ext[i+1];if(mins>=a.m&&mins<=b.m){var f=(mins-a.m)/(b.m-a.m);return a.h+(b.h-a.h)*(1-Math.cos(Math.PI*f))/2;}}return null;}
+
+/* ===== Pacific-time helpers (correct regardless of device timezone) ===== */
+function pacParts(ms){var f=new Intl.DateTimeFormat("en-US",{timeZone:"America/Los_Angeles",year:"numeric",month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit",hour12:false});var o={};f.formatToParts(new Date(ms)).forEach(function(p){o[p.type]=p.value;});var h=(+o.hour)%24;return {y:+o.year,mo:+o.month,d:+o.day,min:h*60+(+o.minute)};}
+function pacNow(){return pacParts(Date.now());}
+function dayNum(y,mo,d){return Math.floor(Date.UTC(y,mo-1,d)/864e5);}
+function sunTimes(){var p=pacNow(),y=p.y,mo=p.mo,d=p.d,lat=LAT,lon=LON,rad=Math.PI/180;
+ var doy=Math.floor((Date.UTC(y,mo-1,d)-Date.UTC(y,0,0))/864e5),lngHour=lon/15;
+ function calc(rising){var t=doy+((rising?6:18)-lngHour)/24,M=0.9856*t-3.289;
+  var L=M+1.916*Math.sin(M*rad)+0.020*Math.sin(2*M*rad)+282.634;L=((L%360)+360)%360;
+  var RA=Math.atan(0.91764*Math.tan(L*rad))/rad;RA=((RA%360)+360)%360;RA+=Math.floor(L/90)*90-Math.floor(RA/90)*90;RA/=15;
+  var sinDec=0.39782*Math.sin(L*rad),cosDec=Math.cos(Math.asin(sinDec));
+  var cosH=(Math.cos(90.833*rad)-sinDec*Math.sin(lat*rad))/(cosDec*Math.cos(lat*rad));if(cosH>1||cosH<-1)return null;
+  var H=(rising?360-Math.acos(cosH)/rad:Math.acos(cosH)/rad)/15,T=H+RA-0.06571*t-6.622,UT=((T-lngHour)%24+24)%24;
+  return pacParts(Date.UTC(y,mo-1,d)+UT*36e5).min;}
+ return {sunriseM:calc(true),sunsetM:calc(false)};}
+
+/* ===== conditions logic ===== */
+var compass=function(deg){return deg==null?null:["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"][Math.round(deg/22.5)%16];};
+function getJson(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();});}
+function fetchMarine(){var u="https://marine-api.open-meteo.com/v1/marine?latitude="+LAT+"&longitude="+LON+"&hourly=wave_height,wave_period,wave_direction,sea_surface_temperature&timezone=America%2FLos_Angeles&forecast_days=1";
+ return getJson(u).then(function(j){var h=j.hourly||{},i=Math.min(Math.floor(pacNow().min/60),((h.time||[]).length-1));if(i<0)throw new Error("no marine");var toFt=function(v){return v==null?null:Math.round(v*3.281*10)/10;};var c=h.sea_surface_temperature&&h.sea_surface_temperature[i];
+  return {swell:{heightFt:toFt(h.wave_height&&h.wave_height[i]),periodS:h.wave_period&&h.wave_period[i]!=null?Math.round(h.wave_period[i]):null,direction:compass(h.wave_direction&&h.wave_direction[i])},waterTempF:c!=null?Math.round(c*9/5+32):null};});}
+function fetchWind(){var u="https://api.open-meteo.com/v1/forecast?latitude="+LAT+"&longitude="+LON+"&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&timezone=America%2FLos_Angeles&forecast_days=1";
+ return getJson(u).then(function(j){var h=j.hourly||{},i=Math.min(Math.floor(pacNow().min/60),((h.time||[]).length-1));if(i<0)throw new Error("no wind");
+  return {wind:{speedKt:h.wind_speed_10m&&h.wind_speed_10m[i]!=null?Math.round(h.wind_speed_10m[i]):null,direction:compass(h.wind_direction_10m&&h.wind_direction_10m[i])}};});}
+function estimateVis(swell,wind){if(!swell||swell.heightFt==null)return null;var h=swell.heightFt,p=swell.periodS,w=wind&&wind.speedKt,low,high,dr=[];
+ if(h<=2){low=12;high=20;}else if(h<=3){low=8;high=15;}else if(h<=4){low=5;high=10;}else{low=3;high=6;}
+ if(p!=null&&p>=14){low+=2;high+=3;dr.push("long-period groundswell keeps it clean");}else if(p!=null&&p<11){low=Math.max(2,low-3);high=Math.max(4,high-3);dr.push("short-period chop stirs the inshore");}
+ if(w!=null&&w>12){low=Math.max(2,low-2);high=Math.max(4,high-2);dr.push("wind texture on top");}
+ return {lowFt:Math.round(low),highFt:Math.round(high),note:"From "+h.toFixed(1)+" ft swell"+(p?" at "+p+"s":"")+(w!=null?", "+w+" kt wind":"")+(dr.length?" \u2014 "+dr[0]:"")+"."};}
+function buildSummary(s,w,v){var b=[];if(s&&s.heightFt!=null)b.push((s.heightFt+" ft "+(s.direction||"")+" swell"+(s.periodS?" at "+s.periodS+"s":"")).replace(/\s+/g," ").trim());if(w&&w.speedKt!=null)b.push((w.speedKt+" kt "+(w.direction||"")+" wind").replace(/\s+/g," ").trim());if(v)b.push("vis likely "+v.lowFt+"\u2013"+v.highFt+" ft");return b.length?b.join(", ")+".":null;}
+function scoreConditions(d){if(!d)return null;var pts=0,max=0,vl=d.visibility&&d.visibility.lowFt,sw=d.swell&&d.swell.heightFt,wi=d.wind&&d.wind.speedKt,pe=d.swell&&d.swell.periodS;
+ if(vl!=null){max+=40;pts+=vl>=15?40:vl>=10?32:vl>=6?18:6;}if(sw!=null){max+=30;pts+=sw<=2?30:sw<=3?23:sw<=4?12:4;}
+ if(wi!=null){max+=20;pts+=wi<=8?20:wi<=12?14:wi<=15?8:2;}if(pe!=null){max+=10;pts+=pe>=14?10:pe>=11?7:3;}
+ if(max===0)return null;var sc=Math.round(pts/max*100);var lb=sc>=78?"Send it":sc>=58?"Worth a dive":sc>=38?"Marginal":"Skip it";var co=sc>=78?C.seaglass:sc>=58?"#A8C98A":sc>=38?C.amber:C.red;return {score:sc,label:lb,color:co};}
+function fetchLive(){return Promise.allSettled([fetchMarine(),fetchWind()]).then(function(r){var m=r[0].status==="fulfilled"?r[0].value:null,w=r[1].status==="fulfilled"?r[1].value:null;if(!m&&!w)throw new Error("offline");var vis=estimateVis(m&&m.swell,w&&w.wind);return {swell:m&&m.swell||null,waterTempF:m?m.waterTempF:null,wind:w&&w.wind||null,visibility:vis,summary:buildSummary(m&&m.swell,w&&w.wind,vis),source:"Open-Meteo live"};});}
+
+/* ===== Web Mercator + Esri tiles ===== */
+var TS=256;
+function lon2wx(lon,z){return (lon+180)/360*TS*Math.pow(2,z);}
+function lat2wy(lat,z){var s=Math.sin(lat*Math.PI/180);return (0.5-Math.log((1+s)/(1-s))/(4*Math.PI))*TS*Math.pow(2,z);}
+function wx2lon(wx,z){return wx/(TS*Math.pow(2,z))*360-180;}
+function wy2lat(wy,z){var n=Math.PI-2*Math.PI*wy/(TS*Math.pow(2,z));return Math.atan(Math.sinh(n))*180/Math.PI;}
+var ESRI="https://server.arcgisonline.com/ArcGIS/rest/services";
+function tImg(z,y,x){return ESRI+"/World_Imagery/MapServer/tile/"+z+"/"+y+"/"+x;}
+function tTrans(z,y,x){return ESRI+"/Reference/World_Transportation/MapServer/tile/"+z+"/"+y+"/"+x;}
+function tPlace(z,y,x){return ESRI+"/Reference/World_Boundaries_and_Places/MapServer/tile/"+z+"/"+y+"/"+x;}
+
+/* ===== tiny DOM helpers ===== */
+function el(tag,attrs,kids){var e=document.createElement(tag);if(attrs)for(var k in attrs){if(k==="style")e.style.cssText=attrs[k];else if(k==="class")e.className=attrs[k];else if(k.slice(0,2)==="on")e.addEventListener(k.slice(2).toLowerCase(),attrs[k]);else e.setAttribute(k,attrs[k]);}if(kids!=null)(Array.isArray(kids)?kids:[kids]).forEach(function(c){e.appendChild(typeof c==="string"?document.createTextNode(c):c);});return e;}
+function svgEl(tag,attrs,kids){var e=document.createElementNS("http://www.w3.org/2000/svg",tag);if(attrs)for(var k in attrs)e.setAttribute(k,attrs[k]);if(kids!=null)(Array.isArray(kids)?kids:[kids]).forEach(function(c){e.appendChild(typeof c==="string"?document.createTextNode(c):c);});return e;}
+
+/* ===== tide chart ===== */
+function tideChart(ext,nowM,sunriseM,sunsetM){
+  var W=620,H=190,padL=34,padB=22,padT=10,iw=W-padL-6,ih=H-padB-padT;
+  var pts=[];for(var m=0;m<=1440;m+=12){var h=tideHeightAt(m,ext);if(h!=null)pts.push([m,h]);}
+  if(pts.length<4)return el("div",{style:"height:190px;display:flex;align-items:center;justify-content:center;color:"+C.slate+";font-family:"+MONO+";font-size:12px;"},"Tide data unavailable");
+  var hs=pts.map(function(p){return p[1];}),hmin=Math.min.apply(null,hs)-0.3,hmax=Math.max.apply(null,hs)+0.3;
+  var X=function(m){return padL+m/1440*iw;},Y=function(h){return padT+(1-(h-hmin)/(hmax-hmin))*ih;};
+  var d="M"+pts.map(function(p){return X(p[0]).toFixed(1)+","+Y(p[1]).toFixed(1);}).join(" L");
+  var area=d+" L"+X(1440).toFixed(1)+","+(padT+ih)+" L"+padL+","+(padT+ih)+" Z";
+  var g=svgEl("svg",{viewBox:"0 0 "+W+" "+H,style:"width:100%;height:190px;"});
+  var defs=svgEl("defs");var lg=svgEl("linearGradient",{id:"tf",x1:"0",y1:"0",x2:"0",y2:"1"});
+  lg.appendChild(svgEl("stop",{offset:"0%","stop-color":C.seaglass,"stop-opacity":"0.35"}));
+  lg.appendChild(svgEl("stop",{offset:"100%","stop-color":C.seaglass,"stop-opacity":"0.02"}));defs.appendChild(lg);g.appendChild(defs);
+  [0,360,720,1080,1440].forEach(function(t){g.appendChild(svgEl("line",{x1:X(t),y1:padT,x2:X(t),y2:padT+ih,stroke:C.edge,"stroke-dasharray":"2 6"}));
+    g.appendChild(svgEl("text",{x:X(t),y:H-7,fill:C.slate,"font-family":MONO,"font-size":"10","text-anchor":"middle"},fmtMins(t)));});
+  [hmin,(hmin+hmax)/2,hmax].forEach(function(h){g.appendChild(svgEl("text",{x:padL-5,y:Y(h)+3,fill:C.slate,"font-family":MONO,"font-size":"10","text-anchor":"end"},h.toFixed(1)));});
+  [sunriseM,sunsetM].forEach(function(s){if(s!=null)g.appendChild(svgEl("line",{x1:X(s),y1:padT,x2:X(s),y2:padT+ih,stroke:C.slate,"stroke-dasharray":"3 3"}));});
+  g.appendChild(svgEl("path",{d:area,fill:"url(#tf)"}));
+  g.appendChild(svgEl("path",{d:d,fill:"none",stroke:C.seaglass,"stroke-width":"2"}));
+  g.appendChild(svgEl("line",{x1:X(nowM),y1:padT,x2:X(nowM),y2:padT+ih,stroke:C.amber,"stroke-width":"1.5"}));
+  var ch=tideHeightAt(nowM,ext);if(ch!=null)g.appendChild(svgEl("circle",{cx:X(nowM),cy:Y(ch),r:"4",fill:C.amber,stroke:C.abyss,"stroke-width":"1.5"}));
+  return g;
+}
+
+/* ===== satellite map ===== */
+function makeMap(){
+  var view={lat:32.836,lon:-117.278,z:14},labelsOn=true,tileState="pending",probe={ok:0,err:0},drag=null;
+  var map=el("div",{id:"map"});
+  var tilesDiv=el("div",{style:"position:absolute;inset:0;"});map.appendChild(tilesDiv);
+  var ovl=svgEl("svg",{id:"ovl"});map.appendChild(ovl);
+  var badge=el("div",{id:"badge"},"No imagery \u2014 boundaries still active");map.appendChild(badge);
+  var lblBtn=el("button",{id:"lbl",onClick:function(){labelsOn=!labelsOn;lblBtn.textContent=labelsOn?"LABELS ON":"LABELS OFF";lblBtn.style.color=labelsOn?C.seaglass:C.slate;render();}},"LABELS ON");map.appendChild(lblBtn);
+  var ctl=el("div",{class:"mctl"});
+  ctl.appendChild(el("button",{onClick:function(){zoomBy(1);}},"+"));
+  ctl.appendChild(el("button",{onClick:function(){zoomBy(-1);}},"\u2212"));
+  map.appendChild(ctl);
+
+  function size(){return {w:map.clientWidth||360,h:460};}
+  function zoomBy(d){view.z=Math.max(10,Math.min(19,view.z+d));render();}
+  function fitAll(){var v=size(),lats=SPOTS.map(function(s){return s.lat;}),lons=SPOTS.map(function(s){return s.lon;});
+    var clat=(Math.min.apply(null,lats)+Math.max.apply(null,lats))/2,clon=(Math.min.apply(null,lons)+Math.max.apply(null,lons))/2,z;
+    for(z=17;z>=10;z--){var cwx=lon2wx(clon,z),cwy=lat2wy(clat,z),ok=true;for(var i=0;i<lats.length;i++){var sx=lon2wx(lons[i],z)-(cwx-v.w/2),sy=lat2wy(lats[i],z)-(cwy-v.h/2);if(!(sx>30&&sx<v.w-30&&sy>44&&sy<v.h-44)){ok=false;break;}}if(ok)break;}
+    view={lat:clat,lon:clon,z:z};render();}
+  function retry(){probe={ok:0,err:0};tileState="pending";render();}
+
+  function render(){
+    var v=size(),z=view.z,cwx=lon2wx(view.lon,z),cwy=lat2wy(view.lat,z),tlx=cwx-v.w/2,tly=cwy-v.h/2;
+    function toS(lat,lon){return [lon2wx(lon,z)-tlx,lat2wy(lat,z)-tly];}
+    /* tiles */
+    tilesDiv.innerHTML="";
+    if(tileState!=="blocked"){
+      var max=Math.pow(2,z),x0=Math.floor(tlx/TS),x1=Math.floor((tlx+v.w)/TS),y0=Math.floor(tly/TS),y1=Math.floor((tly+v.h)/TS);
+      for(var ty=y0;ty<=y1;ty++){if(ty<0||ty>=max)continue;for(var tx=x0;tx<=x1;tx++){if(tx<0||tx>=max)continue;
+        var L=tx*TS-tlx,T=ty*TS-tly;
+        (function(zz,yy,xx,L,T){var im=el("img",{style:"left:"+L+"px;top:"+T+"px;",onLoad:function(){probe.ok++;if(tileState==="pending"){tileState="ok";badge.style.display="none";}},onError:function(){probe.err++;if(probe.ok===0&&probe.err>=4){tileState="blocked";render();}}});im.src=tImg(zz,yy,xx);tilesDiv.appendChild(im);
+          if(labelsOn){var t1=el("img",{style:"left:"+L+"px;top:"+T+"px;pointer-events:none;"});t1.src=tTrans(zz,yy,xx);tilesDiv.appendChild(t1);var t2=el("img",{style:"left:"+L+"px;top:"+T+"px;pointer-events:none;"});t2.src=tPlace(zz,yy,xx);tilesDiv.appendChild(t2);}
+        })(z,ty,tx,L,T);
+      }}
+    }
+    badge.style.display=tileState==="blocked"?"block":"none";
+    /* overlay */
+    ovl.setAttribute("width",v.w);ovl.setAttribute("height",v.h);ovl.innerHTML="";
+    var kc=function(k){return k==="smr"?C.red:C.amber;};
+    if(tileState==="blocked"){ /* faint coastline for offline context */
+      var cd="M"+OCEAN_COAST.map(function(p){var s=toS(p[0],p[1]);return s[0].toFixed(1)+","+s[1].toFixed(1);}).join(" L");
+      ovl.appendChild(svgEl("path",{d:cd,fill:"none",stroke:C.slate,"stroke-opacity":"0.5","stroke-width":"1.5"}));
+    }
+    MPAS.forEach(function(m){var d="M"+m.pts.map(function(p){var s=toS(p[0],p[1]);return s[0].toFixed(1)+","+s[1].toFixed(1);}).join(" L")+" Z";
+      ovl.appendChild(svgEl("path",{d:d,fill:kc(m.kind),"fill-opacity":m.kind==="smr"?"0.22":"0.14",stroke:kc(m.kind),"stroke-opacity":"0.9","stroke-width":"1.5","stroke-dasharray":"5 3"}));});
+    MPAS.forEach(function(m){var s=toS(m.labelAt[0],m.labelAt[1]);if(s[0]<-40||s[0]>v.w+40||s[1]<0||s[1]>v.h)return;
+      var t=svgEl("text",{x:s[0],y:s[1],"text-anchor":"middle",fill:kc(m.kind),"font-family":MONO,"font-size":"9","font-weight":"700","paint-order":"stroke",stroke:"rgba(10,29,32,0.9)","stroke-width":"2.5"});
+      t.appendChild(svgEl("tspan",{x:s[0],dy:"0"},m.name));t.appendChild(svgEl("tspan",{x:s[0],dy:"10"},m.sub));ovl.appendChild(t);});
+    ACCESS.forEach(function(a){var s=toS(a.lat,a.lon);if(s[0]<-20||s[0]>v.w+20||s[1]<-20||s[1]>v.h+20)return;
+      ovl.appendChild(svgEl("rect",{x:s[0]-5,y:s[1]-5,width:"10",height:"10",transform:"rotate(45 "+s[0]+" "+s[1]+")",fill:C.bone,stroke:C.abyss,"stroke-width":"1"}));
+      ovl.appendChild(svgEl("text",{x:s[0],y:s[1]+2.6,"text-anchor":"middle",fill:C.abyss,"font-family":MONO,"font-size":"7","font-weight":"700"},"P"));
+      ovl.appendChild(svgEl("text",{x:s[0]+9,y:s[1]+3,fill:C.bone,"font-family":MONO,"font-size":"8.5","paint-order":"stroke",stroke:"rgba(10,29,32,0.9)","stroke-width":"2.5"},a.name));});
+    SPOTS.forEach(function(s0,i){var s=toS(s0.lat,s0.lon);if(s[0]<-20||s[0]>v.w+20||s[1]<-20||s[1]>v.h+20)return;
+      ovl.appendChild(svgEl("circle",{cx:s[0],cy:s[1],r:"9",fill:"none",stroke:C.seaglass,"stroke-opacity":"0.45","stroke-width":"1.5"}));
+      ovl.appendChild(svgEl("circle",{cx:s[0],cy:s[1],r:"5",fill:C.seaglass,stroke:C.abyss,"stroke-width":"1.5"}));
+      ovl.appendChild(svgEl("text",{x:s[0],y:s[1]+2.6,"text-anchor":"middle",fill:C.abyss,"font-family":MONO,"font-size":"8","font-weight":"700"},String(i+1)));
+      ovl.appendChild(svgEl("text",{x:s[0]+12,y:s[1]+3,fill:C.seaglass,"font-family":MONO,"font-size":"9.5","font-weight":"700","paint-order":"stroke",stroke:"rgba(10,29,32,0.9)","stroke-width":"3"},s0.name));});
+    /* scale bar */
+    var mpp=156543.03*Math.cos(view.lat*Math.PI/180)/Math.pow(2,z),scaleM=500;
+    [100,200,500,1000,2000,5000].forEach(function(n){if(n/mpp<=v.w*0.4)scaleM=n;});var spx=scaleM/mpp;
+    var sg=svgEl("g",{transform:"translate(12,"+(v.h-16)+")"});
+    sg.appendChild(svgEl("line",{x1:"0",y1:"0",x2:spx,y2:"0",stroke:C.bone,"stroke-width":"2"}));
+    sg.appendChild(svgEl("line",{x1:"0",y1:"-3",x2:"0",y2:"3",stroke:C.bone,"stroke-width":"2"}));
+    sg.appendChild(svgEl("line",{x1:spx,y1:"-3",x2:spx,y2:"3",stroke:C.bone,"stroke-width":"2"}));
+    sg.appendChild(svgEl("text",{x:spx/2,y:"-5","text-anchor":"middle",fill:C.bone,"font-family":MONO,"font-size":"9","paint-order":"stroke",stroke:"rgba(10,29,32,0.9)","stroke-width":"3"},scaleM>=1000?(scaleM/1000+" km"):(scaleM+" m")));
+    ovl.appendChild(sg);
+  }
+
+  /* interactions */
+  map.addEventListener("pointerdown",function(e){map.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY,lat:view.lat,lon:view.lon,z:view.z};map.style.cursor="grabbing";});
+  map.addEventListener("pointermove",function(e){if(!drag)return;var cwx=lon2wx(drag.lon,drag.z)-(e.clientX-drag.x),cwy=lat2wy(drag.lat,drag.z)-(e.clientY-drag.y);view.lat=wy2lat(cwy,drag.z);view.lon=wx2lon(cwx,drag.z);render();});
+  function endDrag(e){drag=null;map.style.cursor="grab";if(e&&e.pointerId!=null){try{map.releasePointerCapture(e.pointerId);}catch(_){}}}
+  map.addEventListener("pointerup",endDrag);map.addEventListener("pointercancel",endDrag);map.addEventListener("pointerleave",endDrag);
+  map.addEventListener("wheel",function(e){e.preventDefault();var r=map.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top,v=size();
+    var nz=Math.max(10,Math.min(19,view.z+(e.deltaY<0?1:-1)));if(nz===view.z)return;
+    var cwx=lon2wx(view.lon,view.z),cwy=lat2wy(view.lat,view.z),lon=wx2lon(cwx-v.w/2+sx,view.z),lat=wy2lat(cwy-v.h/2+sy,view.z);
+    var ncwx=lon2wx(lon,nz)-(sx-v.w/2),ncwy=lat2wy(lat,nz)-(sy-v.h/2);view={lat:wy2lat(ncwy,nz),lon:wx2lon(ncwx,nz),z:nz};render();},{passive:false});
+
+  /* pinch zoom (two-pointer) */
+  var ptrs={},pinch=null;
+  map.addEventListener("pointerdown",function(e){ptrs[e.pointerId]={x:e.clientX,y:e.clientY};var ids=Object.keys(ptrs);if(ids.length===2){drag=null;var a=ptrs[ids[0]],b=ptrs[ids[1]];pinch={d:Math.hypot(a.x-b.x,a.y-b.y),z:view.z};}});
+  map.addEventListener("pointermove",function(e){if(ptrs[e.pointerId])ptrs[e.pointerId]={x:e.clientX,y:e.clientY};if(pinch){var ids=Object.keys(ptrs);if(ids.length>=2){var a=ptrs[ids[0]],b=ptrs[ids[1]],nd=Math.hypot(a.x-b.x,a.y-b.y);var nz=Math.max(10,Math.min(19,Math.round(pinch.z+Math.log2(nd/pinch.d))));if(nz!==view.z){view.z=nz;render();}}}});
+  function dropPtr(e){delete ptrs[e.pointerId];if(Object.keys(ptrs).length<2)pinch=null;}
+  map.addEventListener("pointerup",dropPtr);map.addEventListener("pointercancel",dropPtr);
+
+  setTimeout(function(){if(probe.ok===0&&tileState==="pending"){tileState="blocked";render();}},4500);
+  return {node:map,render:render,fitAll:fitAll,retry:retry};
+}
+
+/* ===== render page ===== */
+var mapApi=null;
+function tile(label,value,unit,sub,pending){
+  var v=el("div",{class:"tile"});v.appendChild(el("div",{class:"eyebrow"},label));
+  var line=el("div",{style:"display:flex;align-items:baseline;margin-top:4px;"});
+  var val=el("span",{class:"v"+(pending?" pulse":""),style:pending?"color:"+C.slate:""},pending?"\u00b7\u00b7\u00b7":(value==null?"\u2014":String(value)));line.appendChild(val);
+  if(!pending&&unit)line.appendChild(el("span",{class:"u"},unit));v.appendChild(line);
+  if(!pending&&sub)v.appendChild(el("div",{class:"s"},sub));return v;
+}
+function renderVerdict(live){
+  var box=document.getElementById("verdict");box.innerHTML="";
+  if(live.status==="loading"){var c=el("div",{class:"card pulse",style:"display:flex;align-items:center;gap:12px;"});c.appendChild(el("div",{style:"width:8px;height:8px;border-radius:50%;background:"+C.seaglass}));c.appendChild(el("span",{style:"font-family:"+MONO+";font-size:11px;color:"+C.slate+";letter-spacing:.12em;text-transform:uppercase;"},"Reading buoys for swell & wind\u2026"));box.appendChild(c);return;}
+  if(live.status==="failed"){var c2=el("div",{class:"card",style:"border-color:"+C.amber+"55;"});c2.appendChild(el("div",{style:"font-family:"+MONO+";font-size:11px;color:"+C.amber+";letter-spacing:.1em;text-transform:uppercase;"},"Live swell & wind unavailable"));c2.appendChild(el("div",{style:"font-size:13px;color:"+C.slate+";line-height:1.45;margin-top:4px;"},"Tides, sun and the map work without a connection \u2014 plan around the windows below and read the water on arrival."));box.appendChild(c2);return;}
+  var r=scoreConditions(live.data);if(!r)return;
+  var c3=el("div",{class:"card",style:"border-color:"+r.color+"55;display:flex;align-items:center;gap:16px;"});
+  var ring=el("div",{style:"width:64px;height:64px;border-radius:50%;border:2px solid "+r.color+";display:flex;align-items:center;justify-content:center;flex:0 0 auto;"});
+  ring.appendChild(el("span",{style:"font-family:"+MONO+";font-size:22px;font-weight:700;color:"+r.color},String(r.score)));c3.appendChild(ring);
+  var txt=el("div");txt.appendChild(el("div",{style:"color:"+r.color+";font-family:"+MONO+";font-size:15px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;"},r.label));
+  if(live.data.summary)txt.appendChild(el("div",{style:"color:"+C.slate+";font-size:13px;line-height:1.45;margin-top:4px;"},live.data.summary));c3.appendChild(txt);box.appendChild(c3);
+}
+function renderContent(live){
+  var root=document.getElementById("content");root.innerHTML="";
+  var ext=getTideExtremes(),nowM=pacNow().min;
+  var st=sunTimes(),srM=st.sunriseM,ssM=st.sunsetM;
+  var curH=tideHeightAt(nowM,ext),nextE=ext.find(function(e){return e.m>nowM;}),trend=nextE&&curH!=null?(nextE.h>curH?"rising":"falling"):null;
+  var today=ext.filter(function(e){return e.m>=0&&e.m<=1440;});
+
+  /* tide card */
+  var tc=el("div",{class:"card"});
+  var tr=el("div",{class:"row"});tr.appendChild(el("div",{class:"eyebrow"},"Tide \u00b7 today"));
+  if(curH!=null){var rt=el("div",{style:"font-family:"+MONO+";font-size:12px;color:"+C.bone});rt.innerHTML="now <b style='color:"+C.seaglass+"'>"+curH.toFixed(1)+" ft</b>"+(trend?" <span style='color:"+C.slate+"'>\u00b7 "+trend+" "+(trend==="rising"?"\u2197":"\u2198")+"</span>":"");tr.appendChild(rt);}tc.appendChild(tr);
+  tc.appendChild(tideChart(ext,nowM,srM,ssM));
+  var evs=el("div",{style:"display:flex;flex-wrap:wrap;gap:4px 20px;margin-top:8px;"});
+  today.forEach(function(e){var d=el("div",{style:"font-family:"+MONO+";font-size:12px;color:"+(e.m<nowM?C.slate:C.bone)});d.innerHTML="<b style='color:"+(e.type==="H"?C.seaglass:C.amber)+"'>"+e.type+"</b> "+fmtMins(e.m)+" <span style='color:"+C.slate+"'>"+e.h.toFixed(1)+"ft</span>";evs.appendChild(d);});tc.appendChild(evs);root.appendChild(tc);
+
+  /* tiles */
+  var pending=live.status==="loading",d=live.data||{},vis=d.visibility||{};
+  var grid=el("div",{class:"grid"});
+  grid.appendChild(tile("Visibility est.",vis.lowFt!=null?vis.lowFt+"\u2013"+(vis.highFt==null?"?":vis.highFt):null,"ft",vis.note,pending));
+  grid.appendChild(tile("Swell",d.swell?d.swell.heightFt:null,"ft",d.swell?((d.swell.periodS==null?"?":d.swell.periodS)+"s \u00b7 "+(d.swell.direction||"")):null,pending));
+  grid.appendChild(tile("Wind",d.wind?d.wind.speedKt:null,"kt",d.wind?d.wind.direction:null,pending));
+  grid.appendChild(tile("Water temp",d.waterTempF,"\u00b0F",d.waterTempF!=null?(d.waterTempF>=66?"Yellowtail water":d.waterTempF>=62?"5mm comfortable":"Cold \u2014 full kit"):null,pending));
+  grid.appendChild(tile("First light",srM!=null?fmtMins(srM):null,null,"sunrise",false));
+  grid.appendChild(tile("Last light",ssM!=null?fmtMins(ssM):null,null,"sunset",false));
+  root.appendChild(grid);
+
+  /* dive windows */
+  var wins=today.filter(function(e){return srM!=null&&ssM!=null&&e.m>srM-30&&e.m<ssM+30;}).map(function(e){return {from:e.m-60,to:e.m+60,label:e.type==="H"?"High slack":"Low slack",past:e.m+60<nowM,best:e.type==="H"};});
+  if(wins.length){var wc=el("div",{class:"card"});wc.appendChild(el("div",{class:"eyebrow"},"Dive windows \u00b7 slack tide in daylight"));var wl=el("div",{style:"display:flex;flex-direction:column;gap:6px;margin-top:8px;"});
+    wins.forEach(function(w){var row=el("div",{style:"display:flex;align-items:center;gap:12px;"+(w.past?"opacity:.45;":"")});row.appendChild(el("span",{style:"font-family:"+MONO+";font-size:13px;color:"+C.bone+";min-width:118px;"},fmtMins(w.from)+"\u2013"+fmtMins(w.to)));
+      row.appendChild(el("span",{style:"font-family:"+MONO+";font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:"+(w.best?C.seaglass:C.slate)},w.label+(w.best?" \u00b7 best inshore vis":"")+(w.past?" \u00b7 passed":"")));wl.appendChild(row);});wc.appendChild(wl);root.appendChild(wc);}
+
+  /* map */
+  var mc=el("div",{class:"card"});var mr=el("div",{class:"row"});mr.appendChild(el("div",{class:"eyebrow"},"Satellite \u00b7 MPA boundaries & access"));
+  mr.appendChild(el("button",{style:"font-family:"+MONO+";font-size:10px;color:"+C.slate+";letter-spacing:.1em;background:none;border:none;cursor:pointer;",onClick:function(){if(mapApi)mapApi.fitAll();}},"\u2922 FIT ALL SPOTS"));mc.appendChild(mr);
+  mapApi=makeMap();mc.appendChild(mapApi.node);
+  var lg=el("div",{class:"legend"});
+  lg.appendChild(el("span",{style:"color:"+C.red},"\u25a7 SMR \u00b7 no take"));lg.appendChild(el("span",{style:"color:"+C.amber},"\u25a7 SMCA \u00b7 restricted"));
+  lg.appendChild(el("span",{style:"color:"+C.seaglass},"\u25cf dive spot"));lg.appendChild(el("span",{style:"color:"+C.bone},"\u25c6 access"));mc.appendChild(lg);
+  mc.appendChild(el("div",{class:"disc"},"Drag to pan \u00b7 pinch or \u00b1 to zoom. Boundaries from CDFW coordinates (CCR Title 14 \u00a7632); access points approximate. Imagery \u00a9 Esri, Maxar, Earthstar Geographics. Verify boundaries on the water."));
+  root.appendChild(mc);
+  requestAnimationFrame(function(){if(mapApi)mapApi.render();});
+
+  /* spots */
+  var sp=el("div",{style:"margin-top:16px;"});sp.appendChild(el("div",{class:"eyebrow"},"Your spots \u00b7 all in open water"));
+  SPOTS.forEach(function(s,i){var card=el("div",{class:"spot"});var h=el("div",{class:"row"});var nm=el("div",{class:"h"});nm.innerHTML="<span style='color:"+C.seaglass+"'>"+(i+1)+"</span> \u00b7 "+s.name;h.appendChild(nm);h.appendChild(el("div",{class:"d"},s.depth));card.appendChild(h);card.appendChild(el("div",{class:"n"},s.note));sp.appendChild(card);});root.appendChild(sp);
+
+  /* footer */
+  var cov=tideCoverageEnd();
+  document.getElementById("foot").textContent="TIDES: NOAA HARMONIC DATA THROUGH "+(cov?cov.toLocaleDateString("en-US",{month:"short",day:"numeric"}).toUpperCase():"\u2014")+" \u00b7 LIVE: "+(d.source?d.source.toUpperCase():(pending?"\u2026":"UNAVAILABLE"))+"  \u2022  VERIFY TIDES BEFORE DIVING \u00b7 CHECK MPA BOUNDARIES";
+}
+
+var liveState={status:"loading",data:null};
+function loadLive(){liveState={status:"loading",data:null};renderVerdict(liveState);renderContent(liveState);
+  fetchLive().then(function(d){liveState={status:"ok",data:d};renderVerdict(liveState);renderContent(liveState);})
+  .catch(function(){liveState={status:"failed",data:null};renderVerdict(liveState);renderContent(liveState);});}
+document.getElementById("refresh").addEventListener("click",loadLive);
+window.addEventListener("resize",function(){if(mapApi)mapApi.render();});
+loadLive();
+</script>
+</body>
+</html>
